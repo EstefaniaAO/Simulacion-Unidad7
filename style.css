@@ -69,9 +69,7 @@ html, body {
 
 /* Personaje tipográfico */
 .character {
-  transform-box: fill-box;
-  transform-origin: center center;
-  transition: transform 0.05s linear;
+  transform-origin: 0 0;
 }
 
 .character .letter-body {
@@ -264,9 +262,9 @@ html, body {
   pointer-events: none;
   z-index: 200;
   transform-origin: 0% 100%;
-  transform: translate(0, -100%) rotate(0deg);
+  transform: translate(0, -100%);
   opacity: 0;
-  transition: opacity 0.35s ease, filter 0.25s ease, transform 0.1s ease-out;
+  transition: opacity 0.35s ease, filter 0.25s ease;
 }
 
 #pencilCursor.visible {
@@ -294,6 +292,40 @@ html, body {
   fill: #ff2238;
 }
 
+/* Botón discreto de control de sonido */
+.sound-toggle {
+  position: fixed;
+  top: 24px;
+  right: 28px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(125, 117, 115, 0.35);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #3b2016;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 150;
+  transition: background-color 0.2s ease, transform 0.2s ease, border-color 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+
+.sound-toggle:hover {
+  background: rgba(255, 255, 255, 0.96);
+  transform: scale(1.08);
+  border-color: var(--coca-red);
+  color: var(--coca-red);
+}
+
+.sound-toggle.muted {
+  opacity: 0.6;
+  color: #7d7573;
+}
+
 /* Revelación final de Coca-Cola */
 #brandReveal {
   position: absolute;
@@ -303,8 +335,8 @@ html, body {
   justify-content: center;
   pointer-events: none;
   opacity: 0;
-  transform: scale(0.9);
-  transition: opacity 1.4s cubic-bezier(0.16, 1, 0.3, 1), transform 1.4s cubic-bezier(0.16, 1, 0.3, 1);
+  transform: scale(0.92);
+  transition: opacity 1.5s cubic-bezier(0.16, 1, 0.3, 1), transform 1.5s cubic-bezier(0.16, 1, 0.3, 1);
   z-index: 100;
 }
 
@@ -314,10 +346,10 @@ html, body {
 }
 
 #cocaLogo {
-  width: min(85vw, 1150px);
-  max-height: 42vh;
+  width: min(58vw, 720px);
+  max-height: 26vh;
   object-fit: contain;
-  filter: drop-shadow(0 18px 40px rgba(0, 0, 0, 0.32));
+  filter: drop-shadow(0 14px 34px rgba(0, 0, 0, 0.26));
 }
 
 @media (max-width: 768px) {
@@ -326,7 +358,13 @@ html, body {
     height: 52px;
   }
   #cocaLogo {
-    width: 90vw;
-    max-height: 35vh;
+    width: 78vw;
+    max-height: 22vh;
+  }
+  .sound-toggle {
+    top: 16px;
+    right: 18px;
+    width: 38px;
+    height: 38px;
   }
 }
