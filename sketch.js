@@ -1,7 +1,7 @@
 /**
  * Coca-Cola — «La Felicidad que se Contagia»
  * Experiencia interactiva tipográfica de arte generativo y animación.
- * JavaScript nativo, CSS y SVG. Sin dependencias externas.
+ * JavaScript nativo, CSS y SVG. Sin dependencias externas
  */
 
 (function () {
