@@ -229,6 +229,18 @@ html, body {
   filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.55));
 }
 
+.bubble.coca-forming .bubble-circle {
+  fill: url(#bubbleGlow);
+  stroke: rgba(147, 16, 29, 0.68);
+  stroke-width: 3.2px;
+  filter: drop-shadow(0 0 2px rgba(135, 18, 30, 0.45)) drop-shadow(0 0 6px rgba(255, 255, 255, 0.38)) drop-shadow(0 3px 7px rgba(80, 0, 8, 0.18));
+}
+
+.bubble.coca-forming .bubble-highlight {
+  fill: #ffffff;
+  opacity: 0.92;
+}
+
 .bubble-highlight {
   fill: rgba(255, 255, 255, 0.75);
   pointer-events: none;

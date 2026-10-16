@@ -216,7 +216,7 @@
       });
     }
 
-    // Formación completa de COLA: progresión armónica brillante y cálida
+    // Formación completa de COCA: progresión armónica brillante y cálida
     playColaCompleted() {
       this.resume();
       if (!this.ctx || this.isMuted) return;
@@ -242,50 +242,46 @@
   const soundEngine = new SoundEngine();
 
   /* ==========================================================================
-     PUNTOS OBJETIVO PARA LA FORMACIÓN PROGRESIVA DE COLA (CENTRADOS A X=720)
+    PUNTOS OBJETIVO PARA LA FORMACIÓN PROGRESIVA DE COCA (CENTRADOS A X=720)
      ========================================================================== */
   function createColaTargetPoints() {
     const points = [];
-    const baseY = 135;
-    const centerX = 720;
+    const baseY = 900 * 0.275;
+    const centerX = 1440 * 0.5;
 
-    // C: centrada en 720 - 300 = 420
-    const cX = centerX - 300;
+    const letterRadiusX = 1440 * 0.054;
+    const letterRadiusY = 900 * 0.1;
+    const letterCenters = [centerX - 1440 * 0.333, centerX - 1440 * 0.111, centerX + 1440 * 0.111, centerX + 1440 * 0.333];
+
+    // C: contorno abierto con burbujas densas para una silueta redondeada
+    const firstCX = letterCenters[0];
     for (let a = Math.PI * 0.32; a <= Math.PI * 1.68; a += 0.27) {
-      points.push({ x: cX + Math.cos(a) * 54, y: baseY + Math.sin(a) * 62, filled: false, bubble: null });
+      points.push({ x: firstCX + Math.cos(a) * letterRadiusX, y: baseY + Math.sin(a) * letterRadiusY, filled: false, bubble: null });
     }
 
-    // O: centrada en 720 - 100 = 620
-    const oX = centerX - 100;
-    for (let a = 0; a < Math.PI * 2; a += 0.52) {
-      points.push({ x: oX + Math.cos(a) * 52, y: baseY + Math.sin(a) * 62, filled: false, bubble: null });
+    // O: óvalo amplio y continuo
+    const oX = letterCenters[1];
+    for (let a = 0; a < Math.PI * 2; a += 0.4) {
+      points.push({ x: oX + Math.cos(a) * letterRadiusX, y: baseY + Math.sin(a) * letterRadiusY, filled: false, bubble: null });
     }
 
-    // L: centrada en 720 + 95 = 815
-    const lX = centerX + 95;
-    // Barra vertical
-    for (let y = baseY - 62; y <= baseY + 62; y += 22) {
-      points.push({ x: lX - 25, y: y, filled: false, bubble: null });
-    }
-    // Pie horizontal
-    for (let x = lX - 3; x <= lX + 42; x += 22) {
-      points.push({ x: x, y: baseY + 62, filled: false, bubble: null });
+    // Segunda C: mantiene el ritmo visual de la primera
+    const secondCX = letterCenters[2];
+    for (let a = Math.PI * 0.32; a <= Math.PI * 1.68; a += 0.27) {
+      points.push({ x: secondCX + Math.cos(a) * letterRadiusX, y: baseY + Math.sin(a) * letterRadiusY, filled: false, bubble: null });
     }
 
-    // A: centrada en 720 + 295 = 1015
-    const aX = centerX + 295;
-    // Rama izquierda
-    for (let t = 0; t <= 1; t += 0.22) {
-      points.push({ x: lerp(aX, aX - 48, t), y: lerp(baseY - 62, baseY + 62, t), filled: false, bubble: null });
+    // A: ramas amplias y travesaño para conservar la legibilidad
+    const aX = letterCenters[3];
+    for (let t = 0; t <= 1; t += 0.16) {
+      points.push({ x: lerp(aX, aX - letterRadiusX * 0.86, t), y: lerp(baseY - letterRadiusY, baseY + letterRadiusY, t), filled: false, bubble: null });
     }
-    // Rama derecha
-    for (let t = 0.22; t <= 1; t += 0.22) {
-      points.push({ x: lerp(aX, aX + 48, t), y: lerp(baseY - 62, baseY + 62, t), filled: false, bubble: null });
+    for (let t = 0.16; t <= 1; t += 0.16) {
+      points.push({ x: lerp(aX, aX + letterRadiusX * 0.86, t), y: lerp(baseY - letterRadiusY, baseY + letterRadiusY, t), filled: false, bubble: null });
     }
-    // Travesaño de A
-    points.push({ x: aX - 18, y: baseY + 12, filled: false, bubble: null });
-    points.push({ x: aX, y: baseY + 12, filled: false, bubble: null });
-    points.push({ x: aX + 18, y: baseY + 12, filled: false, bubble: null });
+    for (let t = -0.4; t <= 0.4; t += 0.4) {
+      points.push({ x: aX + letterRadiusX * t, y: baseY + letterRadiusY * 0.22, filled: false, bubble: null });
+    }
 
     return points;
   }
@@ -351,7 +347,7 @@
 
     setupEvents() {
       const onPointerDown = (e) => {
-        if (this.growth < 0.95 || gameState.phase === 'REVEAL') return;
+        if (this.growth < 0.95 || this.owner.face.placedCount < 3 || gameState.phase === 'REVEAL') return;
         e.preventDefault();
         e.stopPropagation();
 
@@ -377,6 +373,10 @@
       const onPointerMove = (e) => {
         if (!this.isDragging || e.pointerId !== this.dragPointerId) return;
         e.preventDefault();
+        if (this.owner.face.placedCount < 3) {
+          this.endDrag();
+          return;
+        }
         this.updateDragPosition(e.clientX, e.clientY);
       };
 
@@ -1035,7 +1035,7 @@
             const b = new Bubble(mouthGlobalX, mouthGlobalY, this.id);
             bubbles.push(b);
 
-            // Asignación progresiva a la palabra COLA:
+            // Asignación progresiva a la palabra COCA:
             // Llena ordenadamente los puntos libres para formar C - O - L - A
             const freePoint = colaTargetPoints.find((pt) => !pt.filled);
             if (freePoint) {
@@ -1187,7 +1187,7 @@
   }
 
   /* ==========================================================================
-     CLASE BUBBLE (BURBUJAS ORGÁNICAS, INTERACCIÓN CON CURSOR Y FORMACIÓN DE COLA)
+    CLASE BUBBLE (BURBUJAS ORGÁNICAS, INTERACCIÓN CON CURSOR Y FORMACIÓN DE COCA)
      ========================================================================== */
   class Bubble {
     constructor(startX, startY, sourceId = 'O') {
@@ -1249,6 +1249,7 @@
       targetPoint.filled = true;
       targetPoint.bubble = this;
       this.isFormingWord = true;
+      this.group.classList.add('coca-forming');
     }
 
     pop() {
@@ -1267,7 +1268,7 @@
         }
       }
 
-      // Si estaba asignada a formar COLA, sustituir su contribución inmediatamente para no romper la palabra
+      // Si estaba asignada a formar COCA, sustituir su contribución inmediatamente para no romper la palabra
       if (this.assignedTarget) {
         const target = this.assignedTarget;
         this.assignedTarget = null;
@@ -1300,7 +1301,7 @@
 
       if (this.isFormingWord && this.assignedTarget) {
         if (!this.isSettled) {
-          // Desplazamiento orgánico hacia su posición asignada en la palabra COLA
+          // Desplazamiento orgánico hacia su posición asignada en la palabra COCA
           const dx = this.assignedTarget.x - this.x;
           const dy = this.assignedTarget.y - this.y;
           const d = Math.hypot(dx, dy);
@@ -1372,7 +1373,8 @@
     }
 
     render() {
-      this.group.setAttribute('transform', `translate(${this.x.toFixed(1)} ${this.y.toFixed(1)})`);
+      const scale = this.isFormingWord ? 1.18 : 1;
+      this.group.setAttribute('transform', `translate(${this.x.toFixed(1)} ${this.y.toFixed(1)}) scale(${scale})`);
       this.group.setAttribute('opacity', this.opacity.toFixed(2));
     }
 
@@ -1575,8 +1577,8 @@
   const specs = [
     {
       id: 'C',
-      x: 160,
-      y: 250,
+      x: 1440 * 0.111,
+      y: 900 * 0.5,
       scale: 0.63,
       viewBox: { w: 369.86, h: 554.8 },
       textTransform: { x: 5, y: 424.31 },
@@ -1594,8 +1596,8 @@
     },
     {
       id: 'O',
-      x: 480,
-      y: 250,
+      x: 1440 * 0.333,
+      y: 900 * 0.5,
       scale: 0.63,
       viewBox: { w: 399.16, h: 554.8 },
       textTransform: { x: 5, y: 424.31 },
@@ -1613,8 +1615,8 @@
     },
     {
       id: 'L',
-      x: 800,
-      y: 250,
+      x: 1440 * 0.556,
+      y: 900 * 0.5,
       scale: 0.63,
       viewBox: { w: 329.57, h: 554.8 },
       textTransform: { x: 5, y: 424.31 },
@@ -1632,8 +1634,8 @@
     },
     {
       id: 'A',
-      x: 1090,
-      y: 250,
+      x: 1440 * 0.757,
+      y: 900 * 0.5,
       scale: 0.63,
       viewBox: { w: 423.33, h: 554.8 },
       textTransform: { x: 5, y: 424.31 },
@@ -1672,11 +1674,20 @@
     const draggedArm = gameState.activeDragArm;
     if (!draggedArm) return;
 
+    if (draggedArm.owner.face.placedCount < 3) {
+      for (const target of characters) target.resetTickleTracking();
+      return;
+    }
+
     const handGlobal = draggedArm.getGlobalHandPoint();
 
     // Comprobar cada letra que NO sea el propietario del brazo
     for (const target of characters) {
       if (target.id === draggedArm.owner.id) continue;
+      if (target.face.placedCount < 3) {
+        target.resetTickleTracking();
+        continue;
+      }
 
       // La letra mira atentamente a la mano que se aproxima
       const targetCenterX = target.x + target.width * 0.5 * target.scale;
@@ -1696,7 +1707,7 @@
   }
 
   /* ==========================================================================
-     CONTROLADOR GLOBAL, FORMACIÓN DE COLA Y REVELACIÓN FINAL
+    CONTROLADOR GLOBAL, FORMACIÓN DE COCA Y REVELACIÓN FINAL
      ========================================================================== */
   function updateGameProgression(dt) {
     if (gameState.phase === 'EXPLORATION') {
@@ -1709,7 +1720,7 @@
         timidBubble = new TimidBubble(randomBetween(280, 1160), 840);
       }
 
-      // Relleno gradual y fiable de los últimos puntos de COLA tras risas
+      // Relleno gradual y fiable de los últimos puntos de COCA tras risas
       if (gameState.totalLaughs >= 2 && bubbles.length < 52) {
         const freePoint = colaTargetPoints.find((pt) => !pt.filled);
         if (freePoint && Math.random() < 0.035) {
@@ -1753,7 +1764,7 @@
         gameState.colaHoldTimer = 4.0; // Permanencia de 3 a 5 segundos con COLA completa y todas felices
         soundEngine.playColaCompleted();
 
-        // Los personajes miran sonrientes la palabra COLA en lo alto
+        // Los personajes miran sonrientes la palabra COCA en lo alto
         for (const c of characters) {
           c.face.setLookTarget(720, 135, 2, 4.0);
         }
@@ -1793,7 +1804,7 @@
     // Acorde final synth / Omnichord cálido y etéreo
     soundEngine.playLogoReveal();
 
-    // Asegurar cualquier punto libre de COLA
+    // Asegurar cualquier punto libre de COCA
     for (const pt of colaTargetPoints) {
       if (!pt.filled) {
         const b = new Bubble(pt.x, pt.y + 30);
