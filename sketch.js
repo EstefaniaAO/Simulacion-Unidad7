@@ -16,6 +16,10 @@
   const wordFormationLayer = document.getElementById('wordFormationLayer');
   const pencilCursor = document.getElementById('pencilCursor');
   const brandReveal = document.getElementById('brandReveal');
+  const wordBackLayer = document.getElementById('wordBackLayer');
+  const shadowLayer = document.getElementById('shadowLayer');
+  const fizzCanvas = document.getElementById('fizzCanvas');
+  const rootStyle = document.documentElement.style;
 
   // Estado global de la experiencia
   const gameState = {
@@ -35,6 +39,7 @@
     colaHoldTimer: 0,
     timidBubbleSpawnTimer: 7.0,
     totalLaughs: 0,
+    heat: 0, // valor visual suavizado (0 crema → 1 rojo)
   };
 
   window.__gameState = gameState;
@@ -237,56 +242,229 @@
         this.playSynthNote(freq, now, 2.4, 0.18, 'sine');
       });
     }
+
+    // Brillo en cadena de la palabra: arpegio cristalino ascendente (estilo Omnichord strum)
+    playWordShimmer() {
+      this.resume();
+      if (!this.ctx || this.isMuted) return;
+      const now = this.ctx.currentTime + 0.05;
+      const strum = [523.25, 587.33, 698.46, 783.99, 880.0, 1046.5, 1174.66, 1396.91];
+      strum.forEach((freq, i) => {
+        this.playSynthNote(freq, now + i * 0.13, 0.9, 0.09, 'triangle');
+      });
+    }
+
+    // Estallido en ola de la palabra antes del logo
+    playRevealPop(step) {
+      if (!this.ctx || this.isMuted) return;
+      const scale = [698.46, 783.99, 880.0, 1046.5, 1174.66, 1396.91, 1567.98];
+      const f = scale[step % scale.length];
+      this.playSynthNote(f, 0, 0.14, 0.07, 'sine');
+    }
   }
 
   const soundEngine = new SoundEngine();
 
   /* ==========================================================================
-    PUNTOS OBJETIVO PARA LA FORMACIÓN PROGRESIVA DE COCA (CENTRADOS A X=720)
+     PALABRA «Coca» EN BURBUJAS — EMPAQUETADO DE CÍRCULOS SOBRE TIPOGRAFÍA SCRIPT
+     La palabra se rasteriza con Lobster en un canvas oculto, se calcula un
+     mapa de distancias al borde y se colocan burbujas de mayor a menor radio
+     para que rellenen el trazo como un letrero de efervescencia.
      ========================================================================== */
-  function createColaTargetPoints() {
-    const points = [];
-    const baseY = 900 * 0.275;
-    const centerX = 1440 * 0.5;
+  const WORD_CONFIG = {
+    text: 'Coca',
+    font: 'Lobster',
+    width: 780,        // ancho de la palabra en unidades de escena
+    centerX: 720,
+    centerY: 228,
+    minR: 4.4,
+    maxR: 19,
+    gap: 1.6,
+    maxCount: 240,
+  };
 
-    const letterRadiusX = 1440 * 0.054;
-    const letterRadiusY = 900 * 0.1;
-    const letterCenters = [centerX - 1440 * 0.333, centerX - 1440 * 0.111, centerX + 1440 * 0.111, centerX + 1440 * 0.333];
+  const colaTargetPoints = []; // se llena cuando la tipografía está cargada
+  const wordBounds = { minX: 520, maxX: 920, minY: 120, maxY: 340, ready: false };
 
-    // C: contorno abierto con burbujas densas para una silueta redondeada
-    const firstCX = letterCenters[0];
-    for (let a = Math.PI * 0.32; a <= Math.PI * 1.68; a += 0.27) {
-      points.push({ x: firstCX + Math.cos(a) * letterRadiusX, y: baseY + Math.sin(a) * letterRadiusY, filled: false, bubble: null });
+  function buildWordTargets() {
+    const cfg = WORD_CONFIG;
+    const cvs = document.createElement('canvas');
+    const ctx = cvs.getContext('2d', { willReadFrequently: true });
+
+    ctx.font = `200px ${cfg.font}`;
+    const probe = ctx.measureText(cfg.text);
+    const fontSize = (200 * cfg.width) / probe.width;
+    const font = `${fontSize.toFixed(1)}px ${cfg.font}`;
+    ctx.font = font;
+    const m = ctx.measureText(cfg.text);
+
+    const asc = m.actualBoundingBoxAscent;
+    const desc = m.actualBoundingBoxDescent;
+    const left = m.actualBoundingBoxLeft;
+    const right = m.actualBoundingBoxRight;
+    const pad = 8;
+    const w = Math.ceil(left + right + pad * 2);
+    const h = Math.ceil(asc + desc + pad * 2);
+    cvs.width = w;
+    cvs.height = h;
+    ctx.font = font;
+    ctx.fillStyle = '#000';
+    ctx.fillText(cfg.text, pad + left, pad + asc);
+
+    // Origen del canvas en coordenadas de escena
+    const ox = cfg.centerX - w / 2;
+    const oy = cfg.centerY - h / 2;
+
+    // Máscara de tinta
+    const data = ctx.getImageData(0, 0, w, h).data;
+    const n = w * h;
+    const dt = new Float32Array(n);
+    const INF = 1e6;
+    for (let i = 0; i < n; i++) dt[i] = data[i * 4 + 3] > 127 ? INF : 0;
+
+    // Transformada de distancia (chaflán 3-4) en dos pasadas
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        if (dt[i] === 0) continue;
+        let v = dt[i];
+        if (x > 0) v = Math.min(v, dt[i - 1] + 3);
+        if (y > 0) {
+          v = Math.min(v, dt[i - w] + 3);
+          if (x > 0) v = Math.min(v, dt[i - w - 1] + 4);
+          if (x < w - 1) v = Math.min(v, dt[i - w + 1] + 4);
+        }
+        dt[i] = v;
+      }
+    }
+    for (let y = h - 1; y >= 0; y--) {
+      for (let x = w - 1; x >= 0; x--) {
+        const i = y * w + x;
+        if (dt[i] === 0) continue;
+        let v = dt[i];
+        if (x < w - 1) v = Math.min(v, dt[i + 1] + 3);
+        if (y < h - 1) {
+          v = Math.min(v, dt[i + w] + 3);
+          if (x < w - 1) v = Math.min(v, dt[i + w + 1] + 4);
+          if (x > 0) v = Math.min(v, dt[i + w - 1] + 4);
+        }
+        dt[i] = v;
+      }
     }
 
-    // O: óvalo amplio y continuo
-    const oX = letterCenters[1];
-    for (let a = 0; a < Math.PI * 2; a += 0.4) {
-      points.push({ x: oX + Math.cos(a) * letterRadiusX, y: baseY + Math.sin(a) * letterRadiusY, filled: false, bubble: null });
+    // Candidatos ordenados por profundidad (los centros del trazo primero)
+    const candidates = [];
+    for (let y = 1; y < h - 1; y += 2) {
+      for (let x = 1; x < w - 1; x += 2) {
+        const d = dt[y * w + x] / 3;
+        if (d >= cfg.minR + 0.8) candidates.push({ x, y, d: d + Math.random() * 0.6 });
+      }
+    }
+    candidates.sort((a, b) => b.d - a.d);
+
+    // Empaquetado voraz con rejilla espacial
+    const cell = cfg.maxR * 2 + cfg.gap;
+    const grid = new Map();
+    const placed = [];
+    const key = (gx, gy) => gx * 10007 + gy;
+    for (const c of candidates) {
+      if (placed.length >= cfg.maxCount) break;
+      const r = Math.min(c.d - 0.8, cfg.maxR) * randomBetween(0.86, 1);
+      if (r < cfg.minR) continue;
+      const gx = Math.floor(c.x / cell);
+      const gy = Math.floor(c.y / cell);
+      let ok = true;
+      for (let ix = gx - 1; ix <= gx + 1 && ok; ix++) {
+        for (let iy = gy - 1; iy <= gy + 1 && ok; iy++) {
+          const list = grid.get(key(ix, iy));
+          if (!list) continue;
+          for (const p of list) {
+            if (Math.hypot(p.x - c.x, p.y - c.y) < p.r + r + cfg.gap) {
+              ok = false;
+              break;
+            }
+          }
+        }
+      }
+      if (!ok) continue;
+      const p = { x: c.x, y: c.y, r };
+      placed.push(p);
+      const k = key(gx, gy);
+      if (!grid.has(k)) grid.set(k, []);
+      grid.get(k).push(p);
     }
 
-    // Segunda C: mantiene el ritmo visual de la primera
-    const secondCX = letterCenters[2];
-    for (let a = Math.PI * 0.32; a <= Math.PI * 1.68; a += 0.27) {
-      points.push({ x: secondCX + Math.cos(a) * letterRadiusX, y: baseY + Math.sin(a) * letterRadiusY, filled: false, bubble: null });
+    // Puntos objetivo en escena, ordenados de izquierda a derecha (la palabra se "escribe")
+    placed.sort((a, b) => a.x - b.x);
+    colaTargetPoints.length = 0;
+    for (const p of placed) {
+      colaTargetPoints.push({ x: ox + p.x, y: oy + p.y, r: p.r, filled: false, bubble: null });
     }
 
-    // A: ramas amplias y travesaño para conservar la legibilidad
-    const aX = letterCenters[3];
-    for (let t = 0; t <= 1; t += 0.16) {
-      points.push({ x: lerp(aX, aX - letterRadiusX * 0.86, t), y: lerp(baseY - letterRadiusY, baseY + letterRadiusY, t), filled: false, bubble: null });
-    }
-    for (let t = 0.16; t <= 1; t += 0.16) {
-      points.push({ x: lerp(aX, aX + letterRadiusX * 0.86, t), y: lerp(baseY - letterRadiusY, baseY + letterRadiusY, t), filled: false, bubble: null });
-    }
-    for (let t = -0.4; t <= 0.4; t += 0.4) {
-      points.push({ x: aX + letterRadiusX * t, y: baseY + letterRadiusY * 0.22, filled: false, bubble: null });
-    }
+    wordBounds.minX = ox + pad;
+    wordBounds.maxX = ox + w - pad;
+    wordBounds.minY = oy + pad;
+    wordBounds.maxY = oy + h - pad;
+    wordBounds.ready = true;
 
-    return points;
+    // Guía tenue + resplandor (detrás de las burbujas)
+    const textX = ox + pad + left;
+    const textY = oy + pad + asc;
+    const makeWordText = (cls) => {
+      const t = createSvgElement('text', { class: cls, x: textX.toFixed(1), y: textY.toFixed(1), 'font-size': fontSize.toFixed(1) });
+      t.textContent = cfg.text;
+      return t;
+    };
+    wordBackLayer.replaceChildren(makeWordText('word-glow'), makeWordText('word-ghost'));
+
+    // Floritura tipo cinta bajo la palabra + destellos (delante)
+    const x0 = wordBounds.minX + 70;
+    const x1 = wordBounds.maxX + 30;
+    const yb = wordBounds.maxY + 6;
+    const span = x1 - x0;
+    const swash = createSvgElement('path', {
+      class: 'word-swash',
+      pathLength: 1,
+      d: `M ${x0} ${yb + 6} C ${x0 + span * 0.28} ${yb + 40}, ${x0 + span * 0.55} ${yb - 4}, ${x0 + span * 0.78} ${yb - 14} S ${x1} ${yb - 46}, ${x1 + 12} ${yb - 70}`,
+    });
+    wordFormationLayer.replaceChildren(swash);
+
+    const sparkles = [
+      { x: wordBounds.minX + 12, y: wordBounds.minY + 10, s: 34, d: 0.9 },
+      { x: wordBounds.maxX - 6, y: wordBounds.minY + 52, s: 26, d: 1.15 },
+      { x: x1 + 14, y: yb - 92, s: 20, d: 1.5 },
+      { x: (wordBounds.minX + wordBounds.maxX) * 0.5 + 40, y: wordBounds.minY - 4, s: 18, d: 1.3 },
+    ];
+    for (const sp of sparkles) {
+      const use = createSvgElement('use', {
+        href: '#sparkle',
+        class: 'word-sparkle',
+        x: sp.x - sp.s / 2,
+        y: sp.y - sp.s / 2,
+        width: sp.s,
+        height: sp.s,
+        style: `--d: ${sp.d}s`,
+      });
+      wordFormationLayer.appendChild(use);
+    }
   }
 
-  const colaTargetPoints = createColaTargetPoints();
+  function initWordTargets() {
+    const run = () => {
+      try {
+        buildWordTargets();
+      } catch (err) {
+        console.error('No se pudo construir la palabra de burbujas', err);
+      }
+    };
+    if (document.fonts && document.fonts.load) {
+      document.fonts
+        .load(`200px ${WORD_CONFIG.font}`, WORD_CONFIG.text)
+        .then(run, run);
+    } else {
+      run();
+    }
+  }
 
   /* ==========================================================================
      CLASE ARM (BRAZOS ORGÁNICOS CON GRAB OFFSET Y CINEMÁTICA ELÁSTICA)
@@ -542,7 +720,11 @@
       });
       this.mouthLaughGroup.append(this.mouthLaughBg, this.mouthTongue);
 
-      this.mouthGroup.append(this.mouthLine, this.mouthLaughGroup);
+      // Mejillas sonrojadas que aparecen al reír
+      const cheekL = createSvgElement('ellipse', { class: 'cheek', cx: -46, cy: -14, rx: 15, ry: 9 });
+      const cheekR = createSvgElement('ellipse', { class: 'cheek', cx: 46, cy: -14, rx: 15, ry: 9 });
+
+      this.mouthGroup.append(cheekL, cheekR, this.mouthLine, this.mouthLaughGroup);
 
       this.mouthPos = { ...defaultSpecs.mouth };
       this.mouthGroup.setAttribute('transform', `translate(${this.mouthPos.x} ${this.mouthPos.y})`);
@@ -837,7 +1019,22 @@
       const tspan = createSvgElement('tspan', { x: 0, y: 0 });
       tspan.textContent = this.id;
       this.glyphText.appendChild(tspan);
-      this.bodySvg.appendChild(this.glyphText);
+
+      // Capa de brillo tipo vidrio de botella (aparece a medida que la letra se pone roja)
+      this.glossText = createSvgElement('text', {
+        class: 'glyph-gloss',
+        transform: `translate(${spec.textTransform.x} ${spec.textTransform.y})`,
+        opacity: 0,
+      });
+      const glossSpan = createSvgElement('tspan', { x: 0, y: 0 });
+      glossSpan.textContent = this.id;
+      this.glossText.appendChild(glossSpan);
+
+      this.bodySvg.append(this.glyphText, this.glossText);
+
+      // Sombra de contacto en el suelo
+      this.shadow = createSvgElement('ellipse', { class: 'char-shadow', rx: 100, ry: 11 });
+      shadowLayer.appendChild(this.shadow);
 
       // Rostro
       this.face = new Face(this, spec.faceSpecs);
@@ -858,11 +1055,13 @@
     }
 
     applyColor() {
-      // Gris neutro cálido: rgb(125, 120, 118) -> Rojo Coca-Cola: rgb(191, 8, 17)
-      const r = Math.round(lerp(125, 191, this.redProgress));
-      const g = Math.round(lerp(120, 8, this.redProgress));
-      const b = Math.round(lerp(118, 17, this.redProgress));
+      // Gris neutro cálido: rgb(125, 120, 118) -> Rojo Coca-Cola: rgb(244, 0, 9)
+      const t = this.redProgress;
+      const r = Math.round(lerp(125, 244, t));
+      const g = Math.round(lerp(120, 0, Math.pow(t, 0.8)));
+      const b = Math.round(lerp(118, 9, Math.pow(t, 0.8)));
       this.glyphText.style.setProperty('--char-fill', `rgb(${r}, ${g}, ${b})`);
+      this.glossText.setAttribute('opacity', (0.25 + t * 0.75).toFixed(2));
     }
 
     setupDrawingInteraction() {
@@ -1008,6 +1207,8 @@
       this.laughTimer = durations[this.id] || 1.8;
 
       this.face.setMouthMode('laugh');
+      this.root.classList.add('laughing');
+      document.body.classList.add('word-started');
       this.spawnLaughBubbles();
 
       // Reproducir melodía synth Omnichord característica de la letra
@@ -1027,11 +1228,11 @@
       const mouthGlobalX = mouthScene.x;
       const mouthGlobalY = mouthScene.y;
 
-      const count = this.id === 'O' ? 9 : 7;
+      const count = this.id === 'O' ? 16 : 14;
 
       for (let i = 0; i < count; i++) {
         setTimeout(() => {
-          if (bubbles.length < 65) {
+          if (bubbles.length < 280) {
             const b = new Bubble(mouthGlobalX, mouthGlobalY, this.id);
             bubbles.push(b);
 
@@ -1042,12 +1243,13 @@
               b.assignToColaPoint(freePoint);
             }
           }
-        }, i * 75);
+        }, i * 60);
       }
     }
 
     stopLaugh() {
       this.isLaughing = false;
+      this.root.classList.remove('laughing');
       this.face.setMouthMode('smile');
       this.tickleStimulus = 0;
       if (this.id === 'C') {
@@ -1124,6 +1326,15 @@
         'transform',
         `translate(${curX} ${curY}) scale(${curScaleX} ${curScaleY}) rotate(${animRotate})`
       );
+
+      // Sombra de contacto: se encoge y aclara cuando la letra salta
+      const lift = Math.max(0, -animTranslateY);
+      const shadowK = 1 - clamp(lift / 90, 0, 0.6);
+      this.shadow.setAttribute('cx', (this.baseX + this.width * 0.5 * this.baseScale + animTranslateX).toFixed(1));
+      this.shadow.setAttribute('cy', (this.baseY + 430 * this.baseScale).toFixed(1));
+      this.shadow.setAttribute('rx', (this.width * 0.42 * this.baseScale * shadowK * animScaleX).toFixed(1));
+      this.shadow.setAttribute('ry', (11 * shadowK).toFixed(1));
+      this.shadow.style.opacity = String(0.16 * shadowK);
 
       // Actualizar cara y brazos
       this.face.update(dt);
@@ -1217,22 +1428,28 @@
       this.group.style.pointerEvents = 'all';
       this.group.style.cursor = 'pointer';
 
+      this.targetRadius = this.radius;
+      this.displayRadius = this.radius;
+
+      // Geometría en radio unitario: el grupo se escala con el radio real
+      this.inner = createSvgElement('g', { class: 'bubble-inner' });
       this.circle = createSvgElement('circle', {
         class: 'bubble-circle',
         cx: 0,
         cy: 0,
-        r: this.radius,
+        r: 1,
       });
       this.highlight = createSvgElement('ellipse', {
         class: 'bubble-highlight',
-        cx: -this.radius * 0.32,
-        cy: -this.radius * 0.32,
-        rx: this.radius * 0.32,
-        ry: this.radius * 0.2,
-        transform: `rotate(-30 ${-this.radius * 0.32} ${-this.radius * 0.32})`,
+        cx: -0.34,
+        cy: -0.36,
+        rx: 0.3,
+        ry: 0.17,
+        transform: 'rotate(-35 -0.34 -0.36)',
       });
 
-      this.group.append(this.circle, this.highlight);
+      this.inner.append(this.circle, this.highlight);
+      this.group.append(this.inner);
       bubbleLayer.appendChild(this.group);
 
       // Contacto y explosión suave al tocar
@@ -1249,7 +1466,29 @@
       targetPoint.filled = true;
       targetPoint.bubble = this;
       this.isFormingWord = true;
+      this.targetRadius = targetPoint.r || this.baseRadius;
       this.group.classList.add('coca-forming');
+    }
+
+    // Estallido final (revelación): sin reponer el punto de la palabra
+    burst(step) {
+      if (this.isPopped) return;
+      this.isPopped = true;
+      if (this.assignedTarget) {
+        this.assignedTarget.filled = false;
+        this.assignedTarget.bubble = null;
+        this.assignedTarget = null;
+      }
+      this.isFormingWord = false;
+      for (let i = 0; i < 2; i++) {
+        if (microBubbles.length < 140) {
+          const angle = Math.random() * Math.PI * 2;
+          const spd = randomBetween(1.5, 3.4);
+          microBubbles.push(new MicroBubble(this.x, this.y, Math.cos(angle) * spd, Math.sin(angle) * spd - 1));
+        }
+      }
+      if (step % 9 === 0) soundEngine.playRevealPop(step / 9);
+      this.group.remove();
     }
 
     pop() {
@@ -1295,9 +1534,12 @@
     update(dt) {
       this.life += dt;
 
-      // Respiración sutil de tamaño orgánico
-      const rScale = 1 + Math.sin(this.life * 2.6 + this.phase) * 0.05;
-      this.circle.setAttribute('r', (this.baseRadius * rScale).toFixed(1));
+      // Respiración sutil de tamaño orgánico (y crecimiento hacia el radio de la palabra)
+      if (this.isFormingWord) {
+        this.baseRadius = lerp(this.baseRadius, this.targetRadius, 0.06);
+      }
+      const breath = this.isFormingWord && this.isSettled ? 0.03 : 0.05;
+      this.displayRadius = this.baseRadius * (1 + Math.sin(this.life * 2.6 + this.phase) * breath);
 
       if (this.isFormingWord && this.assignedTarget) {
         if (!this.isSettled) {
@@ -1317,8 +1559,8 @@
           }
         } else {
           // Micro-flotación y vibración sutil mientras está formada la composición
-          const wobble = Math.sin(this.life * 2.2 + this.phase) * 1.5;
-          const lateral = Math.cos(this.life * 1.8 + this.phase) * 1.2;
+          const wobble = Math.sin(this.life * 2.2 + this.phase) * 0.9;
+          const lateral = Math.cos(this.life * 1.8 + this.phase) * 0.7;
           this.x = this.assignedTarget.x + lateral;
           this.y = this.assignedTarget.y + wobble;
         }
@@ -1373,8 +1615,8 @@
     }
 
     render() {
-      const scale = this.isFormingWord ? 1.18 : 1;
-      this.group.setAttribute('transform', `translate(${this.x.toFixed(1)} ${this.y.toFixed(1)}) scale(${scale})`);
+      const r = this.displayRadius || this.baseRadius;
+      this.group.setAttribute('transform', `translate(${this.x.toFixed(1)} ${this.y.toFixed(1)}) scale(${r.toFixed(2)})`);
       this.group.setAttribute('opacity', this.opacity.toFixed(2));
     }
 
@@ -1709,6 +1951,18 @@
   /* ==========================================================================
     CONTROLADOR GLOBAL, FORMACIÓN DE COCA Y REVELACIÓN FINAL
      ========================================================================== */
+  /* --------------------------------------------------------------------------
+     Temperatura visual: crema → rojo Coca-Cola
+     -------------------------------------------------------------------------- */
+  function applyHeat(target, dt) {
+    gameState.heat = lerp(gameState.heat, target, clamp(dt * 2.2, 0, 1));
+    const h = gameState.heat;
+    rootStyle.setProperty('--heat', h.toFixed(3));
+    const rim = `rgb(${Math.round(lerp(150, 255, h))}, ${Math.round(lerp(14, 255, h))}, ${Math.round(lerp(28, 255, h))})`;
+    rootStyle.setProperty('--bubble-rim', rim);
+    document.body.classList.toggle('is-hot', h > 0.55);
+  }
+
   function updateGameProgression(dt) {
     if (gameState.phase === 'EXPLORATION') {
       gameState.explorationTime += dt;
@@ -1720,11 +1974,14 @@
         timidBubble = new TimidBubble(randomBetween(280, 1160), 840);
       }
 
-      // Relleno gradual y fiable de los últimos puntos de COCA tras risas
-      if (gameState.totalLaughs >= 2 && bubbles.length < 52) {
+      // Efervescencia continua: mientras alguien ríe, la palabra se escribe más rápido
+      const anyLaughing = characters.some((c) => c.isLaughing);
+      const fillChance = gameState.totalLaughs >= 2 ? (anyLaughing ? 0.16 : 0.045) : 0;
+      if (fillChance > 0 && bubbles.length < 260 && Math.random() < fillChance) {
         const freePoint = colaTargetPoints.find((pt) => !pt.filled);
-        if (freePoint && Math.random() < 0.035) {
-          const char = characters[Math.floor(Math.random() * characters.length)];
+        if (freePoint) {
+          const pool = anyLaughing ? characters.filter((c) => c.isLaughing) : characters;
+          const char = pool[Math.floor(Math.random() * pool.length)];
           const mouthPt = scene.createSVGPoint();
           mouthPt.x = 0;
           mouthPt.y = 14;
@@ -1736,13 +1993,12 @@
         }
       }
 
-      // Condición de finalización estricta:
-      // No se acaba hasta que:
+      // Condición de finalización:
       // 1. Todas las letras estén rojas y felices
       // 2. La palabra esté completa
       const totalPoints = colaTargetPoints.length;
       const settledCount = colaTargetPoints.filter((pt) => pt.filled && pt.bubble && pt.bubble.isSettled).length;
-      const isWordComplete = settledCount >= Math.floor(totalPoints * 0.94);
+      const isWordComplete = totalPoints > 0 && settledCount >= Math.floor(totalPoints * 0.94);
 
       const allLettersRedAndHappy =
         characters.length === 4 &&
@@ -1757,17 +2013,8 @@
           );
         });
 
-      // Solo cuando se cumplen AMBAS condiciones se inicia la fase final de retención
       if (isWordComplete && allLettersRedAndHappy && !gameState.colaCompleted) {
-        gameState.colaCompleted = true;
-        gameState.phase = 'COLA_HOLD';
-        gameState.colaHoldTimer = 4.0; // Permanencia de 3 a 5 segundos con COLA completa y todas felices
-        soundEngine.playColaCompleted();
-
-        // Los personajes miran sonrientes la palabra COCA en lo alto
-        for (const c of characters) {
-          c.face.setLookTarget(720, 135, 2, 4.0);
-        }
+        startWordCelebration();
       }
     }
 
@@ -1776,72 +2023,176 @@
 
       // Mantener miradas hacia la palabra formada
       for (const c of characters) {
-        c.face.setLookTarget(720, 135, 2, 0.5);
+        c.face.setLookTarget(720, 230, 2, 0.5);
       }
 
-      // Pausa completada: esperar a que termine cualquier arrastre de brazo activo
       const isDragging = gameState.activeDragArm !== null;
       if (gameState.colaHoldTimer <= 0 && !isDragging && !gameState.brandRevealed) {
         revealFinalBrand();
       }
     }
 
-    // Transición suave del fondo hacia el rojo Coca-Cola (#FE001A) según la felicidad global
-    const progress = clamp(gameState.happiness / 3.0, 0, 1);
-    const r = Math.round(lerp(248, 254, progress));
-    const g = Math.round(lerp(244, 0, Math.pow(progress, 1.4)));
-    const b = Math.round(lerp(238, 26, Math.pow(progress, 1.4)));
+    // Transición del fondo hacia el rojo Coca-Cola según la felicidad global
+    const progress =
+      gameState.phase === 'REVEAL' || gameState.phase === 'COLA_HOLD' ? 1 : Math.pow(clamp(gameState.happiness / 3.0, 0, 1), 1.6);
+    applyHeat(progress, dt);
+  }
 
-    document.documentElement.style.setProperty('--bg-r', String(r));
-    document.documentElement.style.setProperty('--bg-g', String(g));
-    document.documentElement.style.setProperty('--bg-b', String(b));
+  // La palabra se completa: rellena huecos, brilla en cadena y aparece la floritura
+  function startWordCelebration() {
+    gameState.colaCompleted = true;
+    gameState.phase = 'COLA_HOLD';
+    gameState.colaHoldTimer = 4.6;
+
+    // Completar los últimos huecos para que la palabra quede perfecta
+    for (const pt of colaTargetPoints) {
+      if (!pt.filled) {
+        const b = new Bubble(pt.x + randomBetween(-20, 20), pt.y + 60);
+        b.assignToColaPoint(pt);
+        bubbles.push(b);
+      }
+    }
+
+    soundEngine.playColaCompleted();
+    setTimeout(() => soundEngine.playWordShimmer(), 450);
+
+    document.body.classList.add('word-complete');
+    const spanX = Math.max(1, wordBounds.maxX - wordBounds.minX);
+    setTimeout(() => {
+      for (const pt of colaTargetPoints) {
+        const b = pt.bubble;
+        if (!b) continue;
+        const delay = clamp((pt.x - wordBounds.minX) / spanX, 0, 1) * 1.1;
+        b.group.style.setProperty('--shine-delay', `${delay.toFixed(2)}s`);
+        b.group.classList.add('shine');
+      }
+    }, 350);
+
+    for (const c of characters) {
+      c.face.setLookTarget(720, 230, 2, 4.0);
+    }
   }
 
   function revealFinalBrand() {
     gameState.phase = 'REVEAL';
     gameState.brandRevealed = true;
 
-    // Acorde final synth / Omnichord cálido y etéreo
     soundEngine.playLogoReveal();
 
-    // Asegurar cualquier punto libre de COCA
-    for (const pt of colaTargetPoints) {
-      if (!pt.filled) {
-        const b = new Bubble(pt.x, pt.y + 30);
-        b.assignToColaPoint(pt);
-        bubbles.push(b);
-      }
-    }
+    // Fondo completamente rojo Coca-Cola
+    gameState.heat = 1;
+    applyHeat(1, 1);
+    document.body.classList.add('is-revealed');
 
-    // Fondo completamente rojo Coca-Cola #FE001A
-    document.documentElement.style.setProperty('--bg-r', '254');
-    document.documentElement.style.setProperty('--bg-g', '0');
-    document.documentElement.style.setProperty('--bg-b', '26');
-
-    // Desvanecer suavemente las letras para que el logo sea el protagonista absoluto
+    // Desvanecer suavemente las letras para que el logo sea el protagonista
     letterLayer.style.transition = 'opacity 1.4s cubic-bezier(0.25, 1, 0.5, 1)';
     letterLayer.style.opacity = '0';
 
-    // Revelar logo centrado con escala equilibrada
-    brandReveal.classList.add('visible');
+    // Las burbujas de la palabra estallan en ola de izquierda a derecha
+    const wordBubbles = bubbles.filter((b) => b.isFormingWord && !b.isPopped).sort((a, b) => a.x - b.x);
+    const total = wordBubbles.length;
+    wordBubbles.forEach((b, i) => {
+      setTimeout(() => b.burst(i), (i / Math.max(1, total)) * 850);
+    });
 
-    // Las burbujas de la palabra se disuelven suavemente hacia arriba
+    // Las burbujas libres suben y se desvanecen
     for (const b of bubbles) {
-      if (b.isFormingWord) {
-        b.isFormingWord = false;
+      if (!b.isFormingWord) {
         b.vy = -randomBetween(1.1, 2.2);
-        b.life = b.maxLife - 1.6;
+        b.life = Math.max(b.life, b.maxLife - 1.6);
       }
     }
+
+    // Cinta blanca + logo con destello
+    setTimeout(() => brandReveal.classList.add('visible'), 380);
   }
 
   /* ==========================================================================
      INICIALIZACIÓN DE LA ESCENA Y EVENTOS GLOBALES
      ========================================================================== */
+  /* --------------------------------------------------------------------------
+     Efervescencia ambiental (canvas detrás de la escena)
+     Pocas burbujas finas al inicio; se multiplican con la felicidad.
+     -------------------------------------------------------------------------- */
+  const fizz = {
+    ctx: fizzCanvas ? fizzCanvas.getContext('2d') : null,
+    parts: [],
+    w: 0,
+    h: 0,
+    dpr: 1,
+  };
+
+  function resizeFizz() {
+    if (!fizz.ctx) return;
+    fizz.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    fizz.w = fizzCanvas.clientWidth;
+    fizz.h = fizzCanvas.clientHeight;
+    fizzCanvas.width = Math.round(fizz.w * fizz.dpr);
+    fizzCanvas.height = Math.round(fizz.h * fizz.dpr);
+  }
+
+  function spawnFizz(anywhere) {
+    fizz.parts.push({
+      x: Math.random() * fizz.w,
+      y: anywhere ? Math.random() * fizz.h : fizz.h + 10,
+      r: randomBetween(1.2, 4.2),
+      vy: randomBetween(18, 62),
+      ph: Math.random() * Math.PI * 2,
+      amp: randomBetween(4, 14),
+    });
+  }
+
+  function updateFizz(dt) {
+    if (!fizz.ctx || !fizz.w) return;
+    const h = gameState.heat;
+    const target = Math.round(14 + h * 70 + (gameState.phase === 'REVEAL' ? 50 : 0));
+    if (fizz.parts.length < target && Math.random() < 0.5) spawnFizz(false);
+
+    const ctx = fizz.ctx;
+    ctx.setTransform(fizz.dpr, 0, 0, fizz.dpr, 0, 0);
+    ctx.clearRect(0, 0, fizz.w, fizz.h);
+    const cr = Math.round(lerp(244, 255, h));
+    const cg = Math.round(lerp(0, 255, h));
+    const cb = Math.round(lerp(9, 255, h));
+    const alpha = lerp(0.26, 0.6, h);
+    ctx.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${alpha.toFixed(3)})`;
+    ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${(alpha * 0.25).toFixed(3)})`;
+    ctx.lineWidth = 1.2;
+
+    for (let i = fizz.parts.length - 1; i >= 0; i--) {
+      const p = fizz.parts[i];
+      p.y -= p.vy * dt * (1 + h * 0.6);
+      p.ph += dt * 2;
+      const x = p.x + Math.sin(p.ph) * p.amp;
+      if (p.y < -12) {
+        fizz.parts.splice(i, 1);
+        continue;
+      }
+      ctx.beginPath();
+      ctx.arc(x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
   function initScene() {
     // Instanciar los cuatro personajes
     for (const spec of specs) {
       characters.push(new LetterCharacter(spec));
+    }
+
+    // Palabra «Coca» de burbujas (espera a que cargue la tipografía script)
+    initWordTargets();
+
+    // Efervescencia ambiental
+    resizeFizz();
+    for (let i = 0; i < 12; i++) spawnFizz(true);
+
+    // Volver a jugar
+    const replayBtn = document.getElementById('replayBtn');
+    if (replayBtn) {
+      replayBtn.addEventListener('pointerdown', (e) => e.stopPropagation());
+      replayBtn.addEventListener('click', () => window.location.reload());
     }
 
     // Botón discreto de control de audio (mute / unmute)
@@ -1892,6 +2243,7 @@
     });
 
     window.addEventListener('resize', () => {
+      resizeFizz();
       if (gameState.pointerScreenX > 0) {
         const scenePt = screenToSvg(gameState.pointerScreenX, gameState.pointerScreenY);
         gameState.pointerSceneX = scenePt.x;
@@ -1908,6 +2260,7 @@
 
       // Actualizar progresión global
       updateGameProgression(dt);
+      updateFizz(dt);
 
       // Actualizar personajes
       for (const char of characters) {
